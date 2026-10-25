@@ -1,0 +1,65 @@
+# promtool unit tests. scripts/check.sh extracts .spec of every PrometheusRule
+# into build/rules/ first, then runs: promtool test rules tests/*.yaml
+rule_files:
+  - ../build/rules/slo-recording.yaml
+  - ../build/rules/slo-alerts.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: portfolio goes down for 15 minutes -> fast burn pages, diskmon stays quiet
+    interval: 30s
+    input_series:
+      # 60 min healthy, then down
+      - series: 'probe_success{job="blackbox-slo", slo="portfolio", instance="https://portfolio.futurnex.io"}'
+        values: '1x119 0x60'
+      - series: 'probe_success{job="blackbox-slo", slo="diskmon-login", instance="https://diskmon.futurnex.io/login"}'
+        values: '1x179'
+      # cert expiry as unix time: portfolio in 90 days, diskmon in 10 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox-slo", slo="portfolio", instance="https://portfolio.futurnex.io"}'
+        values: '7776000x179'
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox-slo", slo="diskmon-login", instance="https://diskmon.futurnex.io/login"}'
+        values: '864000x179'
+
+    promql_expr_test:
+      - expr: slo:burn_rate:5m{slo="diskmon-login"}
+        eval_time: 75m
+        exp_samples:
+          - labels: 'slo:burn_rate:5m{slo="diskmon-login"}'
+            value: 0
+      - expr: round(slo:burn_rate:5m{slo="portfolio"})
+        eval_time: 75m
+        exp_samples:
+          - labels: '{slo="portfolio"}'
+            value: 1000
+
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: SLOErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: SLOErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: portfolio
+            exp_annotations:
+              summary: "portfolio: error budget is burning fast"
+              description: "At this rate the 30-day error budget of portfolio is gone in under 5 days."
+              runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+      - eval_time: 75m
+        alertname: SLOProbeMissing
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: TLSCertificateExpiringSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              slo: diskmon-login
+            exp_annotations:
+              summary: "diskmon-login: TLS certificate expires in less than 14 days"
+              description: "Let's Encrypt renews at 30 days left; check the Traefik ACME resolver."
+              runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+      - eval_time: 75m
+        alertname: TLSCertificateExpiringCritical
+        exp_alerts: []
