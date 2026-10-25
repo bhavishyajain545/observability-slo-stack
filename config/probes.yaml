@@ -1,0 +1,41 @@
+# Black-box probes of the two PUBLIC endpoints only. Nothing internal to the
+# apps behind them is scraped.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: portfolio
+  labels:
+    slo: portfolio
+spec:
+  jobName: blackbox-slo
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_2xx_302
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://portfolio.futurnex.io
+      labels:
+        slo: portfolio
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: diskmon-login
+  labels:
+    slo: diskmon-login
+spec:
+  jobName: blackbox-slo
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_2xx_302
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://diskmon.futurnex.io/login
+      labels:
+        slo: diskmon-login

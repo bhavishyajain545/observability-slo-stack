@@ -1,0 +1,72 @@
+# SLIs, objectives, error budget and burn rates for every probe labelled `slo`.
+#
+#   SLI (availability)   = good probes / all probes      = avg_over_time(probe_success)
+#   error ratio          = 1 - SLI
+#   error budget         = 1 - objective                 (0.1% for a 99.9% SLO)
+#   burn rate            = error ratio / error budget    (1 = budget lasts exactly 30d)
+#   budget remaining     = 1 - error ratio(30d) / error budget
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-recording
+  labels:
+    app.kubernetes.io/part-of: observability-slo-stack
+spec:
+  groups:
+    - name: slo-objectives
+      interval: 1m
+      rules:
+        - record: slo:objective:ratio
+          expr: vector(0.999)
+          labels: { slo: portfolio }
+        - record: slo:objective:ratio
+          expr: vector(0.999)
+          labels: { slo: diskmon-login }
+        - record: slo:error_budget:ratio
+          expr: 1 - slo:objective:ratio
+
+    - name: slo-sli-short
+      interval: 30s
+      rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[5m]))
+        - record: slo:sli_error:ratio_rate30m
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[30m]))
+        - record: slo:sli_error:ratio_rate1h
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[1h]))
+        - record: slo:sli_error:ratio_rate2h
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[2h]))
+        - record: slo:sli_error:ratio_rate6h
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[6h]))
+
+    - name: slo-sli-long
+      interval: 5m
+      rules:
+        - record: slo:sli_error:ratio_rate1d
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[1d]))
+        - record: slo:sli_error:ratio_rate3d
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[3d]))
+        - record: slo:sli_error:ratio_rate30d
+          expr: 1 - avg by (slo) (avg_over_time(probe_success{job="blackbox-slo"}[30d]))
+
+    - name: slo-burn-rate
+      interval: 30s
+      rules:
+        - record: slo:burn_rate:5m
+          expr: slo:sli_error:ratio_rate5m / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:30m
+          expr: slo:sli_error:ratio_rate30m / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:1h
+          expr: slo:sli_error:ratio_rate1h / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:2h
+          expr: slo:sli_error:ratio_rate2h / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:6h
+          expr: slo:sli_error:ratio_rate6h / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:1d
+          expr: slo:sli_error:ratio_rate1d / on (slo) slo:error_budget:ratio
+        - record: slo:burn_rate:3d
+          expr: slo:sli_error:ratio_rate3d / on (slo) slo:error_budget:ratio
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - (slo:sli_error:ratio_rate30d / on (slo) slo:error_budget:ratio)
+        - record: slo:tls_cert_days_left
+          expr: (min by (slo) (probe_ssl_earliest_cert_expiry{job="blackbox-slo"}) - time()) / 86400

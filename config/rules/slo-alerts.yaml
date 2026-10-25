@@ -1,0 +1,89 @@
+# Multi-window, multi-burn-rate alerts (Google SRE Workbook, ch. 5).
+# A long window proves the burn is significant, a short window (1/12 of it)
+# makes the alert reset quickly once the problem is fixed.
+#
+#   severity  long  short  burn   budget consumed when it fires
+#   critical  1h    5m     14.4   2%  of 30d budget
+#   critical  6h    30m    6      5%
+#   warning   1d    2h     3      10%
+#   warning   3d    6h     1      10%
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-alerts
+  labels:
+    app.kubernetes.io/part-of: observability-slo-stack
+spec:
+  groups:
+    - name: slo-burn-rate-alerts
+      rules:
+        - alert: SLOErrorBudgetBurnFast
+          expr: |
+            (slo:burn_rate:1h > 14.4 and slo:burn_rate:5m > 14.4)
+            or
+            (slo:burn_rate:6h > 6 and slo:burn_rate:30m > 6)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.slo }}: error budget is burning fast"
+            description: "At this rate the 30-day error budget of {{ $labels.slo }} is gone in under 5 days."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+
+        - alert: SLOErrorBudgetBurnSlow
+          expr: |
+            (slo:burn_rate:1d > 3 and slo:burn_rate:2h > 3)
+            or
+            (slo:burn_rate:3d > 1 and slo:burn_rate:6h > 1)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.slo }}: error budget is burning steadily"
+            description: "{{ $labels.slo }} is consuming error budget faster than the SLO allows."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+
+        - alert: SLOErrorBudgetExhausted
+          expr: slo:error_budget_remaining:ratio <= 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.slo }}: 30-day error budget exhausted"
+            description: "Freeze risky changes to {{ $labels.slo }} until the budget recovers."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+
+    - name: slo-probe-alerts
+      rules:
+        - alert: SLOProbeMissing
+          expr: |
+            absent(probe_success{job="blackbox-slo", slo="portfolio"})
+            or
+            absent(probe_success{job="blackbox-slo", slo="diskmon-login"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "An SLO probe is not reporting"
+            description: "No probe_success samples for one of the SLO targets - the SLI cannot be computed."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+
+        - alert: TLSCertificateExpiringSoon
+          expr: slo:tls_cert_days_left < 14
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.slo }}: TLS certificate expires in less than 14 days"
+            description: "Let's Encrypt renews at 30 days left; check the Traefik ACME resolver."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
+
+        - alert: TLSCertificateExpiringCritical
+          expr: slo:tls_cert_days_left < 7
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.slo }}: TLS certificate expires in less than 7 days"
+            description: "Renewal has been failing for weeks; renew manually now."
+            runbook_url: "https://github.com/bhavishyajain545/observability-slo-stack#runbook"
