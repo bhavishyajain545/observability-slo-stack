@@ -114,9 +114,13 @@ Provisioned from JSON in `config/dashboards/` by the Grafana sidecar
 ### Screenshots (to add)
 
 - [ ] `docs/slo-overview.png` - SLO overview, last 24 h
-- [ ] `docs/burn-rate.png` - burn rate panel during a simulated outage
+- [x] `docs/burn-rate.png` - burn rate during a **real** incident: repeated portfolio redeploys caused ~30 s of downtime each (the container stayed `health: starting` for a full 30 s healthcheck interval, so Traefik had no backend). The 1 h burn rate crossed the fast-burn threshold; the fix was a 2 s `start_interval` on the healthcheck, cutting redeploy downtime to ~2.5 s.
+
+  ![Burn rate during a real incident](docs/burn-rate.png)
 - [ ] `docs/vps-node.png` - VPS node dashboard
-- [ ] `docs/argocd-apps.png` - the five Applications in Argo CD
+- [x] `docs/argocd-apps.png` - the Applications in Argo CD
+
+  ![Argo CD applications](docs/argocd-apps.png)
 
 ## Access model
 
