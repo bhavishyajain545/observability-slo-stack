@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - probes.yaml
+  - rules/slo-recording.yaml
+  - rules/slo-alerts.yaml
+  - grafana-folder-guard.yaml
+
+# Dashboards are plain JSON in Git; the Grafana sidecar loads every ConfigMap
+# labelled grafana_dashboard=1 into the folder named by grafana_folder.
+configMapGenerator:
+  - name: dashboard-slo-overview
+    files: [dashboards/slo/slo-overview.json]
+    options:
+      disableNameSuffixHash: true
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: SLO }
+  - name: dashboard-vps-node
+    files: [dashboards/platform/vps-node.json]
+    options:
+      disableNameSuffixHash: true
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: Platform }

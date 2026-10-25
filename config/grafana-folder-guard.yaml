@@ -1,0 +1,58 @@
+# Grafana OSS cannot provision folder permissions from files, and Grafana runs
+# without persistence (everything is provisioned from Git). This CronJob
+# re-applies the one permission that matters: the "Platform" folder is
+# admin-only, so anonymous visitors (org role Viewer) only see the "SLO" folder.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grafana-folder-guard
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: guard
+              image: curlimages/curl:8.17.0
+              env:
+                - { name: GRAFANA, value: "http://kube-prometheus-stack-grafana.monitoring.svc" }
+                - { name: RESTRICTED_FOLDERS, value: "Platform" }
+                - name: GF_USER
+                  valueFrom: { secretKeyRef: { name: grafana-admin, key: admin-user } }
+                - name: GF_PASS
+                  valueFrom: { secretKeyRef: { name: grafana-admin, key: admin-password } }
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  for title in $RESTRICTED_FOLDERS; do
+                    uid=$(curl -sf -u "$GF_USER:$GF_PASS" "$GRAFANA/api/folders" \
+                      | tr '{' '\n' | grep "\"title\":\"$title\"" \
+                      | sed 's/.*"uid":"\([^"]*\)".*/\1/' | head -n1)
+                    if [ -z "$uid" ]; then echo "folder '$title' not provisioned yet"; continue; fi
+                    for role in Viewer Editor; do
+                      curl -sf -u "$GF_USER:$GF_PASS" -X POST -H 'Content-Type: application/json' \
+                        "$GRAFANA/api/access-control/folders/$uid/builtInRoles/$role" \
+                        -d '{"permission":""}' >/dev/null
+                    done
+                    echo "folder '$title' ($uid): Viewer/Editor access removed"
+                  done
+              resources:
+                requests: { cpu: 5m, memory: 8Mi }
+                limits:   { memory: 32Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
