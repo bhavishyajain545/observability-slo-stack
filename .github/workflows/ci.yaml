@@ -17,7 +17,7 @@ jobs:
   rules-and-dashboards:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install promtool, yq
         run: |
@@ -33,7 +33,7 @@ jobs:
   manifests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: yamllint
         run: |
