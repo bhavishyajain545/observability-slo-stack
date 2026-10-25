@@ -1,0 +1,151 @@
+# kube-prometheus-stack, sized for a single 16 GB VPS that also runs other things.
+# Scope: only the k3s node itself + blackbox probes of two public URLs.
+
+crds:
+  enabled: true
+
+# k3s embeds controller-manager / scheduler / proxy / etcd in one process bound
+# to localhost, so these targets are not scrapeable -- disable instead of alerting.
+kubeControllerManager: { enabled: false }
+kubeScheduler:         { enabled: false }
+kubeProxy:             { enabled: false }
+kubeEtcd:              { enabled: false }
+windowsMonitoring:     { enabled: false }
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+    windows: false
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits:   { memory: 192Mi }
+
+prometheus:
+  prometheusSpec:
+    # pick up PrometheusRules / Probes / ServiceMonitors from any namespace,
+    # not only the ones labelled with this Helm release
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeInterval: 60s
+    evaluationInterval: 30s
+    # 30 days covers the longest SLO window; size cap is the real guard rail
+    retention: 31d
+    retentionSize: 4GB
+    walCompression: true
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits:   { memory: 1536Mi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 6Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 5m, memory: 32Mi }
+      limits:   { memory: 96Mi }
+  # No receivers are wired up in the public demo; alerts are visible in the
+  # Alertmanager API and Grafana. See README to add Slack / email.
+  config:
+    route:
+      receiver: "null"
+      group_by: [alertname, slo]
+      routes:
+        - matchers: ['alertname = "Watchdog"']
+          receiver: "null"
+    receivers:
+      - name: "null"
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { memory: 128Mi }
+
+prometheus-node-exporter:
+  service:
+    # bind to the node's (private) host IP instead of 0.0.0.0 -- node-exporter
+    # runs in the host network namespace and the VPS has no firewall
+    listenOnAllInterfaces: false
+  resources:
+    requests: { cpu: 10m, memory: 24Mi }
+    limits:   { memory: 64Mi }
+
+grafana:
+  # only the dashboards from this repo (config/dashboards) are provisioned
+  defaultDashboardsEnabled: false
+  admin:
+    existingSecret: grafana-admin          # created by scripts/create-secrets.sh, never in Git
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: NodePort
+    nodePort: 30300                        # only bound on the Docker bridge gateway (see homelab-gitops)
+  resources:
+    requests: { cpu: 20m, memory: 96Mi }
+    limits:   { memory: 320Mi }
+  sidecar:
+    resources:
+      requests: { cpu: 5m, memory: 48Mi }
+      limits:   { memory: 128Mi }
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: monitoring
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+        allowUiUpdates: false
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc:3100
+      jsonData:
+        maxLines: 500
+  grafana.ini:
+    server:
+      domain: grafana.futurnex.io
+      root_url: https://grafana.futurnex.io
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+      check_for_plugin_updates: false
+    security:
+      cookie_secure: true
+      disable_gravatar: true
+      allow_embedding: false
+      hide_version: true
+    users:
+      allow_sign_up: false
+      allow_org_create: false
+      viewers_can_edit: false          # => no Explore for Viewers / anonymous
+    auth:
+      disable_login_form: false
+    auth.anonymous:
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
+      hide_version: true
+    snapshots:
+      enabled: false
+    public_dashboards:
+      enabled: false
+    dashboards:
+      default_home_dashboard_path: /tmp/dashboards/SLO/slo-overview.json
+    log:
+      level: warn

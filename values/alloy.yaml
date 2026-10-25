@@ -1,0 +1,78 @@
+# Grafana Alloy (successor of Promtail) shipping pod logs to Loki.
+# Logs are read through the Kubernetes API (loki.source.kubernetes), so no
+# hostPath mounts are needed. Single node -> a single Deployment replica.
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  stabilityLevel: generally-available
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits:   { memory: 256Mi }
+  configMap:
+    create: true
+    content: |
+      logging {
+        level  = "warn"
+        format = "logfmt"
+      }
+
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        // Anonymous Grafana viewers can query any datasource through the API,
+        // so only platform namespaces are collected (no application data).
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex         = "argocd|argo-rollouts|rollouts-demo|monitoring|kube-system"
+          action        = "keep"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.default.receiver]
+      }
+
+      loki.process "default" {
+        stage.drop {
+          older_than = "1h"
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+
+configReloader:
+  resources:
+    requests: { cpu: 1m, memory: 8Mi }
+    limits:   { memory: 32Mi }
+
+serviceMonitor:
+  enabled: true

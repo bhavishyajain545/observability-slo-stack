@@ -1,0 +1,23 @@
+# Probes are declared as prometheus-operator Probe objects in config/probes.yaml.
+fullnameOverride: blackbox-exporter
+
+resources:
+  requests: { cpu: 5m, memory: 16Mi }
+  limits:   { memory: 64Mi }
+
+config:
+  modules:
+    # A public page is "up" when it answers 200 (or a 302 redirect) over valid TLS.
+    http_2xx_302:
+      prober: http
+      timeout: 10s
+      http:
+        method: GET
+        preferred_ip_protocol: ip4
+        follow_redirects: false
+        valid_status_codes: [200, 302]
+        fail_if_not_ssl: true
+        tls_config:
+          insecure_skip_verify: false
+        headers:
+          User-Agent: "blackbox-exporter (observability-slo-stack; SLO probe)"
